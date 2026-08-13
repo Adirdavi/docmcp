@@ -1,0 +1,286 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>docmcp — real Word and Excel files for AI agents</title>
+<meta name="description" content="An MCP server that gives AI agents real .docx and .xlsx files. Headings, tables, frozen headers, right-to-left support.">
+<style>
+  :root{
+    --bg:#08080c; --panel:#101018; --panel2:#16161f; --line:#24242f;
+    --fg:#ececf2; --mut:#8f8fa3; --dim:#5c5c70;
+    --a1:#7c5cff; --a2:#3b82f6; --ok:#34d399;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(900px 500px at 15% -10%, rgba(124,92,255,.20), transparent 60%),
+      radial-gradient(700px 400px at 90% 0%, rgba(59,130,246,.14), transparent 55%);
+    background-repeat:no-repeat;
+  }
+  .wrap{max-width:64rem; margin:0 auto; padding:0 1.5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace}
+
+  /* ---------- hero ---------- */
+  header{padding:5.5rem 0 4rem; text-align:center}
+  .pill{
+    display:inline-flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--mut);
+    border:1px solid var(--line); background:rgba(255,255,255,.03);
+    padding:.35rem .85rem; border-radius:999px; margin-bottom:1.75rem;
+  }
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  h1{
+    font-size:clamp(2.4rem,6vw,4rem); line-height:1.05; letter-spacing:-.035em; font-weight:700;
+    background:linear-gradient(180deg,#fff 30%,#a5a5c0); -webkit-background-clip:text;
+    background-clip:text; color:transparent; margin-bottom:1.1rem;
+  }
+  .lede{font-size:clamp(1.05rem,2.2vw,1.28rem); color:var(--mut); max-width:38rem; margin:0 auto 2.25rem}
+  .lede b{color:var(--fg); font-weight:600}
+  .cta{display:flex; gap:.75rem; justify-content:center; flex-wrap:wrap}
+  .btn{
+    font:inherit; font-weight:550; font-size:.97rem; cursor:pointer; text-decoration:none;
+    padding:.75rem 1.5rem; border-radius:10px; border:1px solid transparent; display:inline-block;
+    transition:transform .12s ease, filter .12s ease;
+  }
+  .btn:hover{transform:translateY(-1px)}
+  .btn-p{background:linear-gradient(135deg,var(--a1),var(--a2)); color:#fff}
+  .btn-p:hover{filter:brightness(1.12)}
+  .btn-s{background:rgba(255,255,255,.05); color:var(--fg); border-color:var(--line)}
+  .btn:disabled{opacity:.55; cursor:default; transform:none}
+  #keybox{max-width:34rem; margin:1.5rem auto 0; display:none; text-align:left}
+  #keybox pre{
+    background:#000; border:1px solid var(--a1); border-radius:10px; padding:.9rem 1rem;
+    overflow-x:auto; font-size:.82rem; color:var(--ok);
+  }
+  #keybox p{font-size:.82rem; color:var(--mut); margin-top:.5rem}
+  #err{display:none; max-width:34rem; margin:1rem auto 0; font-size:.87rem; color:#fca5a5;
+       border:1px solid rgba(248,113,113,.3); background:rgba(248,113,113,.07);
+       border-radius:10px; padding:.7rem .9rem}
+
+  /* ---------- sections ---------- */
+  section{padding:4rem 0; border-top:1px solid var(--line)}
+  .eyebrow{
+    font-size:.75rem; letter-spacing:.14em; text-transform:uppercase; color:var(--a1);
+    font-weight:600; margin-bottom:.6rem;
+  }
+  h2{font-size:clamp(1.5rem,3.2vw,2rem); letter-spacing:-.02em; margin-bottom:.6rem; font-weight:650}
+  .sub{color:var(--mut); max-width:40rem; margin-bottom:2.25rem}
+
+  /* ---------- before / after ---------- */
+  .compare{display:grid; gap:1.25rem; grid-template-columns:repeat(auto-fit,minmax(19rem,1fr)); align-items:start}
+  .col h3{font-size:.85rem; font-weight:600; margin-bottom:.7rem; display:flex; align-items:center; gap:.5rem}
+  .bad{color:#f87171} .good{color:var(--ok)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden}
+  .card .bar{
+    display:flex; gap:.4rem; padding:.65rem .9rem; border-bottom:1px solid var(--line);
+    background:var(--panel2); align-items:center;
+  }
+  .bar i{width:9px;height:9px;border-radius:50%;background:#2f2f3d;display:block}
+  .bar span{margin-left:auto; font-size:.72rem; color:var(--dim); font-family:ui-monospace,monospace}
+  .card .body{padding:1.1rem; font-size:.8rem; line-height:1.75; color:var(--mut);
+              font-family:ui-monospace,monospace; white-space:pre-wrap; min-height:15rem}
+
+  /* the "paper" preview — a real document, shown as one */
+  .paper{
+    background:#fff; color:#1a1a1a; padding:1.5rem 1.6rem; min-height:15rem;
+    direction:rtl; text-align:right; font-family:"Times New Roman",Georgia,serif;
+  }
+  .paper h4{font-size:1.15rem; margin-bottom:.55rem; font-weight:700; color:#000}
+  .paper h5{font-size:.95rem; margin:.9rem 0 .3rem; font-weight:700; color:#111}
+  .paper p{font-size:.86rem; line-height:1.6; color:#333; margin-bottom:.5rem}
+  .paper table{border-collapse:collapse; width:100%; margin-top:.6rem; font-size:.8rem}
+  .paper th,.paper td{border:1px solid #b9b9b9; padding:.34rem .55rem; text-align:right}
+  .paper th{background:#f0f0f0; font-weight:700}
+
+  /* ---------- code ---------- */
+  pre.code{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:1.1rem 1.25rem; overflow-x:auto; font-size:.82rem; line-height:1.7; color:#c9c9db;
+  }
+  .k{color:#7dd3fc} .s{color:#fca5a5} .c{color:var(--dim)} .n{color:#d8b4fe}
+
+  /* ---------- tools ---------- */
+  .grid3{display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
+  .tool{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1.35rem}
+  .tool b{font-family:ui-monospace,monospace; font-size:.92rem; color:var(--a1); display:block; margin-bottom:.45rem}
+  .tool p{font-size:.89rem; color:var(--mut)}
+
+  /* ---------- pricing ---------- */
+  .plans{display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+  .plan{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1.6rem; position:relative}
+  .plan.hi{border-color:var(--a1); background:linear-gradient(180deg,rgba(124,92,255,.09),var(--panel))}
+  .plan .tag{
+    position:absolute; top:-.6rem; right:1.2rem; background:linear-gradient(135deg,var(--a1),var(--a2));
+    font-size:.66rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+    padding:.22rem .6rem; border-radius:999px; color:#fff;
+  }
+  .plan .name{font-size:.78rem; letter-spacing:.1em; text-transform:uppercase; color:var(--mut); margin-bottom:.5rem}
+  .plan .price{font-size:2.1rem; font-weight:700; letter-spacing:-.03em; line-height:1}
+  .plan .price small{font-size:.85rem; font-weight:400; color:var(--mut); letter-spacing:0}
+  .plan .qty{color:var(--mut); font-size:.9rem; margin:.5rem 0 1.2rem}
+  .plan .btn{width:100%; text-align:center}
+
+  footer{border-top:1px solid var(--line); padding:2.5rem 0 4rem; color:var(--dim); font-size:.85rem}
+  footer a{color:var(--mut)}
+  @media (max-width:560px){ header{padding:3.5rem 0 2.5rem} section{padding:3rem 0} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="pill"><i class="dot"></i> Live · free tier, no signup</div>
+  <h1>Real documents,<br>not Markdown.</h1>
+  <p class="lede">An MCP server that hands AI agents actual <b>.docx</b> and <b>.xlsx</b> files —
+     headings, tables, frozen headers, and right-to-left text that <b>actually works</b>.</p>
+  <div class="cta">
+    <button class="btn btn-p" id="get">Get a free key</button>
+    <a class="btn btn-s" href="#connect">Connect it →</a>
+  </div>
+  <div id="keybox"><pre id="key"></pre><p>Copy it now — it is not shown again.</p></div>
+  <p id="err"></p>
+</header>
+
+<section>
+  <div class="eyebrow">The problem</div>
+  <h2>Ask an agent for a report, get a wall of text</h2>
+  <p class="sub">A language model writes words. It cannot assemble a file. Under the hood a
+     Word document is a zip of XML parts where every byte has to land in the right place — so
+     the model returns formatted text and hopes somebody pastes it into Word.</p>
+  <div class="compare">
+    <div class="col">
+      <h3 class="bad">✕ Without docmcp</h3>
+      <div class="card">
+        <div class="bar"><i></i><i></i><i></i><span>chat reply</span></div>
+        <div class="body"># דוח רבעוני
+
+## סיכום
+ההכנסות עלו ב־12%
+
+| אזור | הכנסה |
+|------|-------|
+| צפון | 120   |
+| דרום | 90    |
+
+*(now copy this into Word,
+fix the table, fix the
+direction, fix the fonts…)*</div>
+      </div>
+    </div>
+    <div class="col">
+      <h3 class="good">✓ With docmcp</h3>
+      <div class="card">
+        <div class="bar"><i></i><i></i><i></i><span>report.docx</span></div>
+        <div class="paper">
+          <h4>דוח רבעוני</h4>
+          <h5>סיכום</h5>
+          <p>ההכנסות עלו ב־12% לעומת הרבעון הקודם, בעיקר בזכות אזור הצפון.</p>
+          <table>
+            <tr><th>אזור</th><th>הכנסה</th></tr>
+            <tr><td>צפון</td><td>120</td></tr>
+            <tr><td>דרום</td><td>90</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="connect">
+  <div class="eyebrow">Setup</div>
+  <h2>Two minutes</h2>
+  <p class="sub">Add it to any MCP client — Claude, Cursor, your own agent. Paste your key and it is done.</p>
+  <pre class="code"><span class="c">// claude_desktop_config.json / .cursor/mcp.json</span>
+{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"docmcp"</span>: {
+      <span class="k">"type"</span>: <span class="s">"http"</span>,
+      <span class="k">"url"</span>: <span class="s">"<span class="host"></span>/mcp"</span>,
+      <span class="k">"headers"</span>: { <span class="k">"Authorization"</span>: <span class="s">"Bearer YOUR_KEY"</span> }
+    }
+  }
+}</pre>
+  <p class="sub" style="margin:1.5rem 0 .75rem">Then the agent just calls it:</p>
+  <pre class="code"><span class="n">create_docx</span>({
+  <span class="k">title</span>: <span class="s">"דוח רבעוני"</span>,
+  <span class="k">rtl</span>: <span class="n">true</span>,
+  <span class="k">blocks</span>: [
+    { <span class="k">type</span>: <span class="s">"heading"</span>, <span class="k">text</span>: <span class="s">"סיכום"</span>, <span class="k">level</span>: <span class="n">2</span> },
+    { <span class="k">type</span>: <span class="s">"paragraph"</span>, <span class="k">text</span>: <span class="s">"ההכנסות עלו ב־12%"</span> },
+    { <span class="k">type</span>: <span class="s">"table"</span>, <span class="k">columns</span>: [<span class="s">"אזור"</span>, <span class="s">"הכנסה"</span>],
+      <span class="k">rows</span>: [[<span class="s">"צפון"</span>, <span class="s">"120"</span>], [<span class="s">"דרום"</span>, <span class="s">"90"</span>]] }
+  ]
+})
+
+<span class="c">→ https://…/f/report.docx</span></pre>
+</section>
+
+<section>
+  <div class="eyebrow">Tools</div>
+  <h2>Three, and that is the point</h2>
+  <p class="sub">It does one job properly instead of ten badly.</p>
+  <div class="grid3">
+    <div class="tool"><b>create_docx</b><p>Headings, paragraphs, bullet and numbered lists, tables, page breaks. Set <code>rtl</code> for Hebrew or Arabic.</p></div>
+    <div class="tool"><b>create_xlsx</b><p>Multi-sheet, bold frozen header row, auto-filter, sized columns. Numbers stay numbers.</p></div>
+    <div class="tool"><b>usage</b><p>Documents used and remaining this month. No surprise bills.</p></div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="eyebrow">Pricing</div>
+  <h2>Pay for what you generate</h2>
+  <p class="sub">No seats. Agents are not people, and charging per seat stopped making sense.</p>
+  <div class="plans">
+    <div class="plan">
+      <div class="name">Free</div><div class="price">$0</div>
+      <div class="qty">10 documents / month</div>
+      <button class="btn btn-s get2">Get a key</button>
+    </div>
+    <div class="plan hi">
+      <div class="tag">Popular</div>
+      <div class="name">Starter</div><div class="price">$10<small> /mo</small></div>
+      <div class="qty">100 documents / month</div>
+      <a class="btn btn-p" href="/buy/starter">Choose Starter</a>
+    </div>
+    <div class="plan">
+      <div class="name">Pro</div><div class="price">$30<small> /mo</small></div>
+      <div class="qty">500 documents / month</div>
+      <a class="btn btn-s" href="/buy/pro">Choose Pro</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Generated files stay downloadable for 24 hours, then they are deleted.
+  Nothing you send is stored or used for anything else.
+  <br><a href="/healthz">status</a>
+</footer>
+</div>
+
+<script>
+  document.querySelectorAll(".host").forEach(el => el.textContent = location.origin);
+  const box = document.getElementById("keybox"), out = document.getElementById("key"),
+        err = document.getElementById("err");
+  async function issue(btn){
+    // Remember the original label once. Reading it back on every click appended
+    // the failure suffix to the previous suffix, forever.
+    btn.dataset.label ??= btn.textContent;
+    btn.disabled = true; btn.textContent = "Issuing…"; err.style.display = "none";
+    try{
+      const r = await fetch("/keys/free", { method:"POST" });
+      const data = await r.json().catch(() => ({}));
+      // Surface the server's reason ("already issued today") instead of a bare code.
+      if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+      out.textContent = data.key;
+      box.style.display = "block";
+      btn.textContent = "Key issued ↑";
+      box.scrollIntoView({ behavior:"smooth", block:"center" });
+    }catch(e){
+      btn.disabled = false; btn.textContent = btn.dataset.label;
+      err.textContent = e.message;
+      err.style.display = "block";
+    }
+  }
+  document.getElementById("get").onclick = e => issue(e.currentTarget);
+  document.querySelectorAll(".get2").forEach(b => b.onclick = e => issue(e.currentTarget));
+</script>
