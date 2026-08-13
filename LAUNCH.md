@@ -122,6 +122,48 @@ https://docmcp.fly.dev
 
 ---
 
+## The comments are the launch
+
+Upvotes do nothing. Answering fast, and honestly, is what makes a thread live.
+These are the questions you will actually get. Answer in your own words — the
+point is that none of them catch you cold.
+
+**"Why not just use LibreOffice / pandoc / python-docx?"**
+> You can, and if you're already running a server, do. This exists so an agent
+> can produce a file without you deploying anything. The tool call is the whole
+> product.
+
+**"This is a thin wrapper around the `docx` npm package."**
+> It is. The library is the easy part — what took the time was deciding the
+> block schema an LLM can fill without breaking the file, padding ragged table
+> rows, keeping numbers as numbers, and not making RTL a flag. Agreed that
+> nothing here is hard; it just didn't exist as a tool.
+
+**"Why no PDF?"**
+> Everyone already ships Markdown→PDF. Nobody ships a decent .docx. Good PDF
+> output needs headless Chrome or LibreOffice and triples the deploy, so it's
+> waiting for a paying user to ask.
+
+**"Why should I trust you with my documents?"**
+> Files are generated, served for 24h, then deleted. Nothing is stored or used
+> for anything else. Content passes through the server — if that's not
+> acceptable, self-host it, the code is MIT on GitHub.
+
+**"What stops me making a new free key forever?"**
+> One per IP per day plus a global daily ceiling. Rotating VPNs beats that and
+> nothing stops it. The limits bound the worst case, they don't eliminate it.
+
+**"Single machine, SQLite, no HA?"**
+> Correct. It has no users yet. Postgres and S3 when there's a reason.
+
+**"Pricing seems high for generating a zip file."**
+> Priced against the twenty minutes someone spends fixing a table by hand, not
+> against my compute. Happy to be wrong — tell me what you'd pay.
+
+If someone finds a real bug, say so and fix it that day, then reply in the
+thread that it's fixed. That single move converts more skeptics than any
+feature.
+
 ## What to watch
 
 Open `/admin?token=…` the day you post. The only number that means anything is
