@@ -1,20 +1,14 @@
-# better-sqlite3 is native; give it a toolchain in the builder, ship without one.
-FROM node:22-slim AS build
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-COPY package*.json ./
-RUN npm ci
-
+# Every dependency is now pure JS (pg replaced the native better-sqlite3), so no
+# build toolchain and no multi-stage build is needed.
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production DB_PATH=/data/docmcp.db OUT_DIR=/data/out
-COPY --from=build /app/node_modules ./node_modules
+ENV NODE_ENV=production PORT=8000 OUT_DIR=/tmp/docmcp
 COPY package*.json ./
+RUN npm ci --omit=dev && npm i tsx@4 --no-save
 COPY src ./src
 COPY public ./public
-EXPOSE 8787
-# /data must be a mounted volume — SQLite keys and generated files live there,
-# and a container filesystem is wiped on every redeploy.
-VOLUME ["/data"]
+EXPOSE 8000
+# Generated files live on the container filesystem on purpose: they expire after
+# 24h anyway, so a restart only breaks links that were about to die. Everything
+# that must survive — keys, quotas — is in Postgres via DATABASE_URL.
 CMD ["node", "node_modules/tsx/dist/cli.mjs", "src/index.ts"]

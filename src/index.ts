@@ -15,9 +15,10 @@ const PORT = Number(process.env.PORT ?? 8787);
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 const OUT = path.resolve(process.env.OUT_DIR ?? "out");
 const TTL_MS = 24 * 60 * 60 * 1000;
+await store.init();
 // Without a salt, hashed IPs are trivially reversible — the whole space is enumerable.
 // Persisted in the DB so it survives the machine sleeping and waking.
-const IP_SALT = store.ipSalt();
+const IP_SALT = await store.ipSalt();
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -49,9 +50,9 @@ function sweep() {
 function buildServer(acct: store.Account) {
   const server = new McpServer({ name: "docmcp", version: "0.1.0" });
 
-  const deliver = (buf: Buffer, file: string, kind: string) => {
+  const deliver = async (buf: Buffer, file: string, kind: string) => {
     const kb = Math.round(buf.length / 1024);
-    const { used, quota } = store.usage(acct.key);
+    const { used, quota } = await store.usage(acct.key);
     const where = STDIO
       ? `Saved to: ${path.join(OUT, file)}`
       : `Download (expires in 24h): ${BASE_URL}/f/${file}`;
@@ -94,7 +95,7 @@ function buildServer(acct: store.Account) {
       },
     },
     async ({ blocks, title, filename, rtl }) => {
-      if (!store.consume(acct)) return overQuota();
+      if (!(await store.consume(acct))) return overQuota();
       const buf = await buildDocx({ title, blocks, rtl });
       return deliver(buf, save(buf, filename ?? title ?? "document", "docx"), "Word document");
     },
@@ -113,7 +114,7 @@ function buildServer(acct: store.Account) {
       },
     },
     async ({ sheets, filename }) => {
-      if (!store.consume(acct)) return overQuota();
+      if (!(await store.consume(acct))) return overQuota();
       const buf = await buildXlsx(sheets);
       return deliver(buf, save(buf, filename ?? sheets[0].name, "xlsx"), "Excel workbook");
     },
@@ -123,7 +124,7 @@ function buildServer(acct: store.Account) {
     "usage",
     { title: "Check remaining quota", description: "Documents used and remaining this month.", inputSchema: {} },
     async () => {
-      const { used, quota } = store.usage(acct.key);
+      const { used, quota } = await store.usage(acct.key);
       return {
         content: [
           { type: "text" as const, text: `${used}/${quota} documents used this month (plan: ${acct.plan}).` },
@@ -146,7 +147,7 @@ function startHttp() {
     : null;
 
   // Must precede express.json(): Stripe signature checks need the raw body.
-  app.post("/stripe/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  app.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     if (!stripe) return res.sendStatus(503);
     let event: Stripe.Event;
     try {
@@ -162,12 +163,12 @@ function startHttp() {
     if (event.type === "checkout.session.completed") {
       const s = event.data.object;
       const plan = s.metadata?.plan ?? "starter";
-      const key = store.createKey(plan, s.customer_details?.email ?? undefined, String(s.subscription ?? ""));
+      const key = await store.createKey(plan, s.customer_details?.email ?? undefined, String(s.subscription ?? ""));
       console.log(`issued ${plan} key for ${s.customer_details?.email}: ${key}`);
       // ponytail: key is logged, not emailed — wire an email provider before launch.
     }
     if (event.type === "customer.subscription.deleted") {
-      store.deactivateBySub(event.data.object.id);
+      await store.deactivateBySub(event.data.object.id);
     }
     res.json({ received: true });
   });
@@ -177,7 +178,7 @@ function startHttp() {
   app.get("/pricing", (_req, res) => res.redirect("/#pricing"));
 
   app.post("/mcp", async (req, res) => {
-    const acct = store.auth(String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, ""));
+    const acct = await store.auth(String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, ""));
     if (!acct) {
       return res.status(401).json({
         jsonrpc: "2.0",
@@ -207,12 +208,12 @@ function startHttp() {
     res.download(p, file.slice(34));
   });
 
-  app.post("/keys/free", (req, res) => {
+  app.post("/keys/free", async (req, res) => {
     // Fly terminates TLS upstream, so req.ip is the proxy. Hashed, not stored raw —
     // the landing page promises nothing is kept, and an IP is personal data.
     const ip = String(req.headers["fly-client-ip"] ?? req.socket.remoteAddress ?? "");
     const hash = createHash("sha256").update(IP_SALT + ip).digest("hex").slice(0, 32);
-    const result = store.issueFreeKey(hash);
+    const result = await store.issueFreeKey(hash);
     if ("error" in result) return res.status(429).json(result);
     res.json({ key: result.key, quota: store.PLANS.free });
   });
@@ -236,7 +237,7 @@ function startHttp() {
     const id = String(req.query.session_id ?? "");
     if (!stripe || !id) return res.redirect("/");
     const session = await stripe.checkout.sessions.retrieve(id);
-    const key = session.subscription ? store.keyForSub(String(session.subscription)) : null;
+    const key = session.subscription ? await store.keyForSub(String(session.subscription)) : null;
     const shell = (body: string) =>
       `<!doctype html><meta charset=utf-8><title>docmcp</title>` +
       `<body style="font:16px/1.6 system-ui;max-width:40rem;margin:4rem auto;padding:0 1.25rem">${body}`;
@@ -254,12 +255,12 @@ function startHttp() {
   app.get("/healthz", (_req, res) => res.send("ok"));
 
   // Disabled unless ADMIN_TOKEN is set, so an unconfigured deploy is never exposed.
-  app.get("/admin", (req, res) => {
+  app.get("/admin", async (req, res) => {
     const token = process.env.ADMIN_TOKEN;
     if (!token) return res.sendStatus(404);
     if (String(req.query.token ?? "") !== token) return res.sendStatus(404);
 
-    const s = store.stats();
+    const s = await store.stats();
     const esc = (v: unknown) => String(v).replace(/[<>&]/g, (c) => `&#${c.charCodeAt(0)};`);
     const tile = (label: string, value: unknown, note = "") =>
       `<div class=t><span>${label}</span><b>${esc(value)}</b><i>${esc(note)}</i></div>`;
@@ -320,7 +321,7 @@ ${rows(["key", "plan", "created"], s.recent.map((r) => [r.key.slice(0, 14) + "�
 if (STDIO) {
   // Local client (Claude Desktop / Code). No auth, no quota, no expiry —
   // it is the owner's own machine. stdout is reserved for JSON-RPC.
-  await buildServer(store.localAccount()).connect(new StdioServerTransport());
+  await buildServer(await store.localAccount()).connect(new StdioServerTransport());
 } else {
   startHttp();
 }

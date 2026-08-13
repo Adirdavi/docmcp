@@ -1,32 +1,54 @@
-import Database from "better-sqlite3";
 import { randomBytes } from "node:crypto";
+import pg from "pg";
 
-const db = new Database(process.env.DB_PATH ?? "docmcp.db");
-db.pragma("journal_mode = WAL");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS keys (
-    key        TEXT PRIMARY KEY,
-    email      TEXT,
-    plan       TEXT NOT NULL,
-    quota      INTEGER NOT NULL,
-    stripe_sub TEXT,
-    active     INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS usage (
-    key   TEXT NOT NULL,
-    month TEXT NOT NULL,
-    calls INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (key, month)
-  );
-  CREATE TABLE IF NOT EXISTS free_issues (
-    ip_hash TEXT NOT NULL,
-    day     TEXT NOT NULL,
-    at      TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS free_issues_ip ON free_issues (ip_hash, at);
-  CREATE INDEX IF NOT EXISTS free_issues_day ON free_issues (day);
-`);
+const url = process.env.DATABASE_URL;
+if (!url) throw new Error("DATABASE_URL is not set");
+
+// Managed Postgres (Koyeb, Neon, Supabase) terminates TLS with its own CA.
+const pool = new pg.Pool({
+  connectionString: url,
+  ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
+  max: 5,
+});
+
+const q = <T extends pg.QueryResultRow = pg.QueryResultRow>(sql: string, params: unknown[] = []) =>
+  pool.query<T>(sql, params);
+
+export async function init(): Promise<void> {
+  await q(`
+    CREATE TABLE IF NOT EXISTS keys (
+      key        TEXT PRIMARY KEY,
+      email      TEXT,
+      plan       TEXT NOT NULL,
+      quota      INTEGER NOT NULL,
+      stripe_sub TEXT,
+      active     BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS usage (
+      key   TEXT NOT NULL,
+      month TEXT NOT NULL,
+      calls INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (key, month)
+    );
+    CREATE TABLE IF NOT EXISTS free_issues (
+      ip_hash TEXT NOT NULL,
+      day     DATE NOT NULL DEFAULT current_date,
+      at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS free_issues_ip ON free_issues (ip_hash, at);
+    CREATE INDEX IF NOT EXISTS free_issues_day ON free_issues (day);
+    CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+  `);
+}
+
+/** Test-only. Guarded so a fat-fingered DATABASE_URL cannot wipe production. */
+export async function reset(): Promise<void> {
+  if (process.env.NODE_ENV === "production") throw new Error("refusing to reset in production");
+  await q(`TRUNCATE keys, usage, free_issues, meta`);
+}
+
+export const close = () => pool.end();
 
 export const PLANS: Record<string, number> = {
   free: 10,
@@ -38,93 +60,117 @@ export type Account = { key: string; plan: string; quota: number };
 
 const month = () => new Date().toISOString().slice(0, 7);
 
-export function createKey(plan: string, email?: string, sub?: string): string {
+export async function createKey(plan: string, email?: string, sub?: string): Promise<string> {
   const key = "dk_" + randomBytes(24).toString("hex");
-  db.prepare(
-    `INSERT INTO keys (key, email, plan, quota, stripe_sub, created_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-  ).run(key, email ?? null, plan, PLANS[plan] ?? PLANS.free, sub ?? null);
+  await q(
+    `INSERT INTO keys (key, email, plan, quota, stripe_sub) VALUES ($1, $2, $3, $4, $5)`,
+    [key, email ?? null, plan, PLANS[plan] ?? PLANS.free, sub ?? null],
+  );
   return key;
 }
 
-/** Persisted, not per-boot: this machine auto-sleeps, and a fresh salt on every
- *  wake would silently reset the per-IP limit to nothing. */
-export function ipSalt(): string {
-  db.exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`);
-  db.prepare(`INSERT OR IGNORE INTO meta (k, v) VALUES ('ip_salt', ?)`).run(
+/** Persisted, not per-boot: a fresh salt on every restart would silently reset
+ *  the per-IP limit to nothing. */
+export async function ipSalt(): Promise<string> {
+  await q(`INSERT INTO meta (k, v) VALUES ('ip_salt', $1) ON CONFLICT (k) DO NOTHING`, [
     randomBytes(24).toString("hex"),
-  );
-  return (db.prepare(`SELECT v FROM meta WHERE k = 'ip_salt'`).get() as { v: string }).v;
+  ]);
+  const { rows } = await q<{ v: string }>(`SELECT v FROM meta WHERE k = 'ip_salt'`);
+  return rows[0].v;
 }
 
 export const FREE_PER_IP_HOURS = 24;
 export const FREE_PER_DAY = Number(process.env.FREE_KEYS_PER_DAY ?? 200);
 
-/** One free key per IP per day, plus a global daily ceiling.
- *  Neither stops someone rotating VPNs — nothing does, and no free tier anywhere
- *  survives that. What this does is bound the damage: the casual "just make
- *  another key" loop is closed, and the worst case per day is a known number. */
-export function issueFreeKey(ipHash: string): { key: string } | { error: string } {
-  const tx = db.transaction((h: string) => {
-    const recent = db
-      .prepare(
-        `SELECT COUNT(*) n FROM free_issues
-         WHERE ip_hash = ? AND at > datetime('now', ?)`,
-      )
-      .get(h, `-${FREE_PER_IP_HOURS} hours`) as { n: number };
-    if (recent.n > 0) {
+/** One free key per IP per day, plus a global daily ceiling. Neither stops
+ *  someone rotating VPNs — nothing does. They bound the damage. */
+export async function issueFreeKey(ipHash: string): Promise<{ key: string } | { error: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Serialise concurrent issuance so two simultaneous requests can't both pass.
+    await client.query(`LOCK TABLE free_issues IN SHARE ROW EXCLUSIVE MODE`);
+    const recent = await client.query<{ n: string }>(
+      `SELECT COUNT(*) n FROM free_issues WHERE ip_hash = $1 AND at > now() - ($2 || ' hours')::interval`,
+      [ipHash, String(FREE_PER_IP_HOURS)],
+    );
+    if (Number(recent.rows[0].n) > 0) {
+      await client.query("ROLLBACK");
       return { error: "A free key was already issued to this address today." };
     }
-    const today = db
-      .prepare(`SELECT COUNT(*) n FROM free_issues WHERE day = date('now')`)
-      .get() as { n: number };
-    if (today.n >= FREE_PER_DAY) {
+    const today = await client.query<{ n: string }>(
+      `SELECT COUNT(*) n FROM free_issues WHERE day = current_date`,
+    );
+    if (Number(today.rows[0].n) >= FREE_PER_DAY) {
+      await client.query("ROLLBACK");
       return { error: "Free keys for today are exhausted. Try again tomorrow." };
     }
-    db.prepare(
-      `INSERT INTO free_issues (ip_hash, day, at) VALUES (?, date('now'), datetime('now'))`,
-    ).run(h);
-    return { key: createKey("free") };
-  });
-  return tx(ipHash);
+    const key = "dk_" + randomBytes(24).toString("hex");
+    await client.query(`INSERT INTO keys (key, plan, quota) VALUES ($1, 'free', $2)`, [
+      key,
+      PLANS.free,
+    ]);
+    await client.query(`INSERT INTO free_issues (ip_hash) VALUES ($1)`, [ipHash]);
+    await client.query("COMMIT");
+    return { key };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** Fixed key for --stdio: the caller already owns the machine, so quota is a formality. */
-export function localAccount(): Account {
-  db.prepare(
-    `INSERT OR IGNORE INTO keys (key, plan, quota, created_at)
-     VALUES ('dk_local', 'local', 1000000000, datetime('now'))`,
-  ).run();
-  return auth("dk_local")!;
+export async function localAccount(): Promise<Account> {
+  await q(
+    `INSERT INTO keys (key, plan, quota) VALUES ('dk_local', 'local', 1000000000)
+     ON CONFLICT (key) DO NOTHING`,
+  );
+  return (await auth("dk_local"))!;
 }
 
-export function deactivateBySub(sub: string): void {
-  db.prepare(`UPDATE keys SET active = 0 WHERE stripe_sub = ?`).run(sub);
+export async function keyForSub(sub: string): Promise<string | null> {
+  const { rows } = await q<{ key: string }>(
+    `SELECT key FROM keys WHERE stripe_sub = $1 AND active`,
+    [sub],
+  );
+  return rows[0]?.key ?? null;
 }
 
-export function keyForSub(sub: string): string | null {
-  const row = db
-    .prepare(`SELECT key FROM keys WHERE stripe_sub = ? AND active = 1`)
-    .get(sub) as { key: string } | undefined;
-  return row?.key ?? null;
+export async function deactivateBySub(sub: string): Promise<void> {
+  await q(`UPDATE keys SET active = FALSE WHERE stripe_sub = $1`, [sub]);
 }
 
-export function auth(key: string): Account | null {
-  const row = db
-    .prepare(`SELECT key, plan, quota FROM keys WHERE key = ? AND active = 1`)
-    .get(key) as Account | undefined;
-  return row ?? null;
+export async function auth(key: string): Promise<Account | null> {
+  const { rows } = await q<Account>(
+    `SELECT key, plan, quota FROM keys WHERE key = $1 AND active`,
+    [key],
+  );
+  return rows[0] ?? null;
 }
 
-export function usage(key: string): { used: number; quota: number } {
-  const row = db
-    .prepare(`SELECT calls FROM usage WHERE key = ? AND month = ?`)
-    .get(key, month()) as { calls: number } | undefined;
-  const quota =
-    (db.prepare(`SELECT quota FROM keys WHERE key = ?`).get(key) as
-      | { quota: number }
-      | undefined)?.quota ?? 0;
-  return { used: row?.calls ?? 0, quota };
+export async function usage(key: string): Promise<{ used: number; quota: number }> {
+  const { rows } = await q<{ used: string; quota: number }>(
+    `SELECT COALESCE(u.calls, 0) used, k.quota
+     FROM keys k LEFT JOIN usage u ON u.key = k.key AND u.month = $2
+     WHERE k.key = $1`,
+    [key, month()],
+  );
+  return { used: Number(rows[0]?.used ?? 0), quota: rows[0]?.quota ?? 0 };
+}
+
+/** Consumes one call. Returns false when the monthly quota is spent.
+ *  Single statement, so concurrent calls cannot both slip past the limit. */
+export async function consume(acct: Account): Promise<boolean> {
+  const { rows } = await q(
+    `INSERT INTO usage (key, month, calls) VALUES ($1, $2, 1)
+     ON CONFLICT (key, month) DO UPDATE SET calls = usage.calls + 1
+     WHERE usage.calls < $3
+     RETURNING calls`,
+    [acct.key, month(), acct.quota],
+  );
+  return rows.length > 0;
 }
 
 export type Stats = {
@@ -138,52 +184,36 @@ export type Stats = {
   recent: { key: string; plan: string; created_at: string }[];
 };
 
-export function stats(): Stats {
-  const q = <T>(sql: string, ...a: unknown[]) => db.prepare(sql).all(...a) as T[];
-  const one = (sql: string, ...a: unknown[]) =>
-    (db.prepare(sql).get(...a) as { n: number }).n;
+export async function stats(): Promise<Stats> {
+  const n = async (sql: string, params: unknown[] = []) =>
+    Number((await q<{ n: string }>(sql, params)).rows[0].n);
+  const [plans, keysToday, keysWeek, freeToday, docsMonth, activeKeysMonth, top, recent] =
+    await Promise.all([
+      q(`SELECT plan, COUNT(*) FILTER (WHERE active) active,
+                COUNT(*) FILTER (WHERE NOT active) cancelled
+         FROM keys WHERE plan <> 'local' GROUP BY plan ORDER BY plan`),
+      n(`SELECT COUNT(*) n FROM keys WHERE created_at::date = current_date`),
+      n(`SELECT COUNT(*) n FROM keys WHERE created_at > now() - interval '7 days'`),
+      n(`SELECT COUNT(*) n FROM free_issues WHERE day = current_date`),
+      n(`SELECT COALESCE(SUM(calls),0) n FROM usage WHERE month = $1`, [month()]),
+      n(`SELECT COUNT(*) n FROM usage WHERE month = $1 AND calls > 0`, [month()]),
+      q(`SELECT u.key, k.plan, u.calls, k.quota FROM usage u JOIN keys k ON k.key = u.key
+         WHERE u.month = $1 AND u.calls > 0 ORDER BY u.calls DESC LIMIT 10`, [month()]),
+      q(`SELECT key, plan, to_char(created_at, 'YYYY-MM-DD HH24:MI') created_at
+         FROM keys WHERE plan <> 'local' ORDER BY created_at DESC LIMIT 10`),
+    ]);
   return {
-    plans: q(
-      `SELECT plan, SUM(active) active, SUM(1 - active) cancelled
-       FROM keys WHERE plan != 'local' GROUP BY plan ORDER BY plan`,
-    ),
-    keysToday: one(`SELECT COUNT(*) n FROM keys WHERE date(created_at) = date('now')`),
-    keysWeek: one(`SELECT COUNT(*) n FROM keys WHERE created_at > datetime('now','-7 days')`),
-    freeToday: one(`SELECT COUNT(*) n FROM free_issues WHERE day = date('now')`),
-    docsMonth: one(
-      `SELECT COALESCE(SUM(calls),0) n FROM usage WHERE month = strftime('%Y-%m','now')`,
-    ),
-    activeKeysMonth: one(
-      `SELECT COUNT(*) n FROM usage WHERE month = strftime('%Y-%m','now') AND calls > 0`,
-    ),
-    top: q(
-      `SELECT u.key, k.plan, u.calls, k.quota FROM usage u JOIN keys k ON k.key = u.key
-       WHERE u.month = strftime('%Y-%m','now') AND u.calls > 0
-       ORDER BY u.calls DESC LIMIT 10`,
-    ),
-    recent: q(
-      `SELECT key, plan, created_at FROM keys WHERE plan != 'local'
-       ORDER BY created_at DESC LIMIT 10`,
-    ),
+    plans: plans.rows.map((r) => ({
+      plan: r.plan,
+      active: Number(r.active),
+      cancelled: Number(r.cancelled),
+    })),
+    keysToday,
+    keysWeek,
+    freeToday,
+    docsMonth,
+    activeKeysMonth,
+    top: top.rows as Stats["top"],
+    recent: recent.rows as Stats["recent"],
   };
-}
-
-/** Consumes one call. Returns false when the monthly quota is spent. */
-export function consume(acct: Account): boolean {
-  const tx = db.transaction((a: Account) => {
-    const m = month();
-    db.prepare(
-      `INSERT INTO usage (key, month, calls) VALUES (?, ?, 0)
-       ON CONFLICT (key, month) DO NOTHING`,
-    ).run(a.key, m);
-    const { calls } = db
-      .prepare(`SELECT calls FROM usage WHERE key = ? AND month = ?`)
-      .get(a.key, m) as { calls: number };
-    if (calls >= a.quota) return false;
-    db.prepare(
-      `UPDATE usage SET calls = calls + 1 WHERE key = ? AND month = ?`,
-    ).run(a.key, m);
-    return true;
-  });
-  return tx(acct);
 }

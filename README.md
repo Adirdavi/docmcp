@@ -33,7 +33,7 @@ To register elsewhere:
     "docmcp": {
       "command": "/usr/local/bin/node",
       "args": ["<repo>/node_modules/tsx/dist/cli.mjs", "<repo>/src/index.ts", "--stdio"],
-      "env": { "DB_PATH": "<repo>/docmcp.db", "OUT_DIR": "<somewhere>" }
+      "env": { "DATABASE_URL": "postgres://…", "OUT_DIR": "<somewhere>" }
     }
   }
 }
@@ -74,7 +74,7 @@ curl -X POST localhost:8787/keys/free
 |---|---|---|
 | `PORT` | `8787` | |
 | `BASE_URL` | `http://localhost:$PORT` | Must be the public URL — it goes in download links |
-| `DB_PATH` | `docmcp.db` | SQLite |
+| `DATABASE_URL` | — | **Required.** Any Postgres (Koyeb, Neon, Supabase) |
 | `OUT_DIR` | `out` | Generated files, swept hourly, 24h TTL |
 | `STRIPE_SECRET_KEY` | — | Omit to run without billing |
 | `STRIPE_WEBHOOK_SECRET` | — | For `/stripe/webhook` |
@@ -84,18 +84,15 @@ Plans and quotas live in `PLANS` in [src/store.ts](src/store.ts).
 
 ## Deploy
 
-Any Docker host. **A volume must be mounted at `/data`** — the SQLite key database and
-generated files live there, and a container filesystem is wiped on every redeploy.
-Losing it means every paying customer's key stops working.
+Any Docker host with a Postgres URL. There is no persistent disk requirement:
+generated files live on the container filesystem and expire in 24h anyway, so a
+restart only breaks links that were about to die. Everything that must survive —
+keys, quotas, the IP salt — is in Postgres.
 
-```bash
-fly launch --no-deploy && fly volumes create data --size 1
-fly secrets set BASE_URL=https://your-app.fly.dev STRIPE_SECRET_KEY=sk_live_...
-fly deploy
-```
-
-`BASE_URL` must be the public URL — it is baked into every download link handed to a
-client. Getting it wrong produces links to `localhost`.
+Currently on **Koyeb** (free tier, no card): connect the GitHub repo, it builds the
+Dockerfile, then set the environment variables below. `BASE_URL` must be the public
+URL — it is baked into every download link handed to a client, so getting it wrong
+produces links to a host that does not exist.
 
 ## Billing flow
 
@@ -121,8 +118,8 @@ and that quota stops exactly at the plan limit.
   Add it when a paying user asks.
 - **A lost key cannot be recovered.** It is shown once on `/success`. Add email
   delivery or a "resend by email" route when the first customer asks.
-- **Files and DB are on local disk.** Fine for one box with a volume; move to S3 and
-  Postgres when you run two.
+- **Files are on the container filesystem.** Deliberate — see Deploy. Move to object
+  storage only if 24h links breaking on restart ever actually bothers someone.
 - **Free keys are rate limited, not abuse-proof.** One per IP per 24h plus a global
   daily ceiling (`FREE_KEYS_PER_DAY`, default 200). Rotating VPNs still defeats it —
   nothing stops that, and no free tier anywhere survives a determined attacker. The

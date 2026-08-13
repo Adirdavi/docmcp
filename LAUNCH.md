@@ -47,7 +47,7 @@ Free tier is 10 documents/month, no signup — POST /keys/free and you get a key
 
 Known gaps, so nobody is surprised: no PDF (good PDF output needs headless
 Chrome or LibreOffice and triples the deploy — Word and Excel were the actual
-gap), single machine with SQLite, and a lost key can't be recovered yet.
+gap), single instance, and a lost key can't be recovered yet.
 
 Happy to hear what breaks.
 ```
@@ -153,7 +153,7 @@ point is that none of them catch you cold.
 > One per IP per day plus a global daily ceiling. Rotating VPNs beats that and
 > nothing stops it. The limits bound the worst case, they don't eliminate it.
 
-**"Single machine, SQLite, no HA?"**
+**"Single instance, no HA?"**
 > Correct. It has no users yet. Postgres and S3 when there's a reason.
 
 **"Pricing seems high for generating a zip file."**

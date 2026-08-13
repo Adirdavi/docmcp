@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { buildDocx, buildXlsx } from "./src/docs.js";
@@ -59,27 +56,38 @@ assert.equal(ws.getCell("C2").value, 9.5);
 assert.equal(typeof ws.getCell("B2").value, "number", "numbers became strings");
 assert.equal(ws.getRow(1).font?.bold, true, "header not bold");
 
-// --- quota: consume stops exactly at the plan limit ---
-process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "docmcp-")), "t.db");
-const store = await import("./src/store.js");
-const key = store.createKey("free");
-const acct = store.auth(key)!;
-assert.ok(acct, "key not readable back");
-for (let i = 0; i < acct.quota; i++) assert.equal(store.consume(acct), true, `call ${i} rejected early`);
-assert.equal(store.consume(acct), false, "quota not enforced");
-assert.deepEqual(store.usage(key), { used: acct.quota, quota: acct.quota });
+// --- database-backed checks, only when a throwaway Postgres is provided ---
+// Run against a scratch database: TEST_DATABASE_URL=postgres://... npm test
+if (!process.env.TEST_DATABASE_URL) {
+  console.log("ok — document checks passed (set TEST_DATABASE_URL to also run store checks)");
+} else {
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+  const store = await import("./src/store.js");
+  await store.init();
+  // These tests count rows globally, so they need a database of their own.
+  await store.reset();
 
-// --- free keys: one per address per day, and a global ceiling ---
-const first = store.issueFreeKey("ip-aaa");
-assert.ok("key" in first, "first free key refused");
-assert.ok("error" in store.issueFreeKey("ip-aaa"), "same address got a second key");
-assert.ok("key" in store.issueFreeKey("ip-bbb"), "a different address was blocked");
-for (let i = 0; i < store.FREE_PER_DAY; i++) store.issueFreeKey("ip-" + i);
-assert.ok("error" in store.issueFreeKey("ip-fresh"), "global daily ceiling not enforced");
+  const key = await store.createKey("free");
+  const acct = (await store.auth(key))!;
+  assert.ok(acct, "key not readable back");
+  for (let i = 0; i < acct.quota; i++)
+    assert.equal(await store.consume(acct), true, `call ${i} rejected early`);
+  assert.equal(await store.consume(acct), false, "quota not enforced");
+  assert.deepEqual(await store.usage(key), { used: acct.quota, quota: acct.quota });
 
-// --- the salt must survive a reopen, or the per-IP limit resets on every wake ---
-const salt = store.ipSalt();
-assert.equal(salt, (await import("./src/store.js")).ipSalt(), "salt not stable");
-assert.ok(salt.length >= 32, "salt too short");
+  // --- free keys: one per address per day, and a global ceiling ---
+  assert.ok("key" in (await store.issueFreeKey("ip-aaa")), "first free key refused");
+  assert.ok("error" in (await store.issueFreeKey("ip-aaa")), "same address got a second key");
+  assert.ok("key" in (await store.issueFreeKey("ip-bbb")), "a different address was blocked");
+  for (let i = 0; i < store.FREE_PER_DAY; i++) await store.issueFreeKey("ip-" + i);
+  assert.ok("error" in (await store.issueFreeKey("ip-fresh")), "daily ceiling not enforced");
 
-console.log("ok — all checks passed");
+  // --- the salt must be stable, or the per-IP limit resets on every restart ---
+  const salt = await store.ipSalt();
+  assert.equal(salt, await store.ipSalt(), "salt not stable");
+  assert.ok(salt.length >= 32, "salt too short");
+
+  await store.stats(); // every dashboard query must at least parse
+  await store.close();
+  console.log("ok — all checks passed (documents + store)");
+}
