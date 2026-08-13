@@ -2,7 +2,9 @@
 # build toolchain and no multi-stage build is needed.
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=8000 OUT_DIR=/tmp/docmcp
+# PORT is injected by the host (Render, Koyeb, Cloud Run all set it); the app
+# falls back to 8787 locally. Don't pin it here or the host's value gets ignored.
+ENV NODE_ENV=production OUT_DIR=/tmp/docmcp
 COPY package*.json ./
 RUN npm ci --omit=dev && npm i tsx@4 --no-save
 COPY src ./src

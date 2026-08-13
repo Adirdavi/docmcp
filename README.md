@@ -89,10 +89,16 @@ generated files live on the container filesystem and expire in 24h anyway, so a
 restart only breaks links that were about to die. Everything that must survive —
 keys, quotas, the IP salt — is in Postgres.
 
-Currently on **Koyeb** (free tier, no card): connect the GitHub repo, it builds the
-Dockerfile, then set the environment variables below. `BASE_URL` must be the public
-URL — it is baked into every download link handed to a client, so getting it wrong
-produces links to a host that does not exist.
+Currently **Render** (web service, free tier) + **Neon** (Postgres, free, no expiry).
+Deliberately two providers: state lives somewhere that isn't tied to whoever is
+hosting the container this month. Render builds the Dockerfile straight from GitHub.
+
+`BASE_URL` must be the public URL — it is baked into every download link handed to a
+client, so getting it wrong produces links to a host that does not exist. You only
+learn the URL after the first deploy, so set it then and redeploy.
+
+Render's free tier sleeps after 15 minutes idle and takes 30–50s to wake. That is the
+cost of not having a card on file; fix it by upgrading once a customer pays.
 
 ## Billing flow
 
