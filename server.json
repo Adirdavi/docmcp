@@ -3,7 +3,12 @@
   "name": "io.github.Adirdavi/docmcp",
   "title": "docmcp — Word & Excel files",
   "description": "Real .docx and .xlsx files from structured data, with automatic Hebrew/Arabic RTL.",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "websiteUrl": "https://docmcp.fly.dev",
+  "repository": {
+    "url": "https://github.com/Adirdavi/docmcp",
+    "source": "github"
+  },
   "remotes": [
     {
       "type": "streamable-http",
