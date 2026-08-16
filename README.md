@@ -1,6 +1,6 @@
 # docmcp
 
-**Live: https://docmcp.fly.dev** — free key at `POST /keys/free`, 10 docs/month.
+**Live: https://docmcp.onrender.com** — free key at `POST /keys/free`, 10 docs/month.
 Paid: $10/mo for 100, $30/mo for 500. Quotas live in `PLANS` in [src/store.ts](src/store.ts).
 
 A paid MCP server that turns structured data into **real** `.docx` and `.xlsx` files.

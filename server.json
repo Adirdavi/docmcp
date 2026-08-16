@@ -3,8 +3,8 @@
   "name": "io.github.Adirdavi/docmcp",
   "title": "docmcp — Word & Excel files",
   "description": "Real .docx and .xlsx files from structured data, with automatic Hebrew/Arabic RTL.",
-  "version": "0.1.1",
-  "websiteUrl": "https://docmcp.fly.dev",
+  "version": "0.2.0",
+  "websiteUrl": "https://docmcp.onrender.com",
   "repository": {
     "url": "https://github.com/Adirdavi/docmcp",
     "source": "github"
@@ -12,11 +12,11 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://docmcp.fly.dev/mcp",
+      "url": "https://docmcp.onrender.com/mcp",
       "headers": [
         {
           "name": "Authorization",
-          "description": "Bearer <key>. Get a free key (10 documents/month) at https://docmcp.fly.dev",
+          "description": "Bearer <key>. Get a free key (10 documents/month) at https://docmcp.onrender.com",
           "isRequired": true,
           "isSecret": true
         }

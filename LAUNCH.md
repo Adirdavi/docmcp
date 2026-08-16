@@ -16,7 +16,7 @@ A dead link on launch day is the whole shot, wasted.
 Show HN: An MCP server that gives AI agents real .docx and .xlsx files
 ```
 
-**URL:** `https://docmcp.fly.dev`
+**URL:** `https://docmcp.onrender.com`
 
 **First comment** — post this yourself immediately after submitting:
 
@@ -89,10 +89,10 @@ very often isn't.
 It's on the official registry as io.github.Adirdavi/docmcp:
 
   "type": "http",
-  "url": "https://docmcp.fly.dev/mcp",
+  "url": "https://docmcp.onrender.com/mcp",
   "headers": { "Authorization": "Bearer YOUR_KEY" }
 
-Free key: curl -X POST https://docmcp.fly.dev/keys/free  (10 docs/month)
+Free key: curl -X POST https://docmcp.onrender.com/keys/free  (10 docs/month)
 
 No PDF yet — deliberately. Everyone already ships Markdown→PDF; nobody ships
 a decent .docx. Tell me if that's the wrong call.
@@ -115,7 +115,7 @@ translated for Arabic-speaking dev communities.
 את הכיווניות בלי שצריך לבקש. מתחבר ל-Claude, ל-Cursor, או לכל סוכן שתומך ב-MCP.
 
 חינם עד 10 מסמכים בחודש, בלי הרשמה:
-https://docmcp.fly.dev
+https://docmcp.onrender.com
 
 אשמח לדעת אם זה נשבר לכם על משהו.
 ```
