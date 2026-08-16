@@ -95,6 +95,10 @@ export async function ipSalt(): Promise<string> {
 }
 
 export const FREE_PER_IP_HOURS = 24;
+/** Not 1: offices, campuses and mobile carriers put many people behind one
+ *  address. A single-key limit silently tells the second real user the product is
+ *  broken, and they never report it — they just leave. A few still stops a loop. */
+export const FREE_PER_IP = Number(process.env.FREE_KEYS_PER_IP ?? 3);
 export const FREE_PER_DAY = Number(process.env.FREE_KEYS_PER_DAY ?? 200);
 
 /** One free key per IP per day, plus a global daily ceiling. Neither stops
@@ -109,9 +113,11 @@ export async function issueFreeKey(ipHash: string): Promise<{ key: string } | { 
       `SELECT COUNT(*) n FROM free_issues WHERE ip_hash = $1 AND at > now() - ($2 || ' hours')::interval`,
       [ipHash, String(FREE_PER_IP_HOURS)],
     );
-    if (Number(recent.rows[0].n) > 0) {
+    if (Number(recent.rows[0].n) >= FREE_PER_IP) {
       await client.query("ROLLBACK");
-      return { error: "A free key was already issued to this address today." };
+      return {
+        error: `This address has taken ${FREE_PER_IP} free keys today. Reuse an existing key, or upgrade for more.`,
+      };
     }
     const today = await client.query<{ n: string }>(
       `SELECT COUNT(*) n FROM free_issues WHERE day = current_date`,
