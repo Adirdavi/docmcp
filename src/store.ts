@@ -4,9 +4,24 @@ import pg from "pg";
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
-// Managed Postgres (Koyeb, Neon, Supabase) terminates TLS with its own CA.
+/** Neon hands out connection strings containing `channel_binding=require`, which
+ *  asks for SCRAM-SHA-256-PLUS. node-postgres negotiates plain SCRAM, so the server
+ *  rejects the handshake as error 28P01 — indistinguishable from a wrong password,
+ *  and a miserable thing to debug. TLS is still enforced by the ssl option below. */
+function withoutChannelBinding(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (!u.searchParams.has("channel_binding")) return raw;
+    u.searchParams.delete("channel_binding");
+    return u.toString();
+  } catch {
+    return raw; // not a URL we can parse; let pg report it
+  }
+}
+
+// Managed Postgres (Neon, Supabase, Render) terminates TLS with its own CA.
 const pool = new pg.Pool({
-  connectionString: url,
+  connectionString: withoutChannelBinding(url),
   ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
   max: 5,
 });
