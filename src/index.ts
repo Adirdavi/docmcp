@@ -18,9 +18,24 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 try {
   await store.init();
 } catch (err) {
-  // A silent exit here is indistinguishable from a port misconfiguration in
-  // platform logs, so say which one it was.
-  console.error("FATAL: cannot reach the database. Check DATABASE_URL.\n", err);
+  // Dumping the raw pg error buries the one useful line under twenty undefined
+  // fields, and platform log viewers scroll it off screen. Print the diagnosis.
+  const e = err as { message?: string; code?: string };
+  const url = process.env.DATABASE_URL ?? "";
+  const hint =
+    !url ? "DATABASE_URL is empty."
+    : url.includes("*") ? "DATABASE_URL still contains '*' — the password was copied while masked."
+    : /password auth/i.test(e.message ?? "") ? "Password rejected — copy a fresh connection string."
+    : e.code === "ENOTFOUND" ? "Host not found — the database may have been deleted."
+    : e.code === "ECONNREFUSED" ? "Connection refused — check the host and port."
+    : "See the message above.";
+  console.error(
+    `FATAL: cannot reach the database.\n` +
+      `  reason: ${e.message ?? err}\n` +
+      `  code:   ${e.code ?? "none"}\n` +
+      `  hint:   ${hint}\n` +
+      `  host:   ${url.replace(/\/\/[^@]*@/, "//<credentials>@") || "(unset)"}`,
+  );
   process.exit(1);
 }
 // Without a salt, hashed IPs are trivially reversible — the whole space is enumerable.
