@@ -10,13 +10,17 @@ RUN npm run build
 
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production OUT_DIR=/tmp/docmcp
+# PORT must match what the platform probes. Render defaults to 10000 and uses EXPOSE
+# as the routing hint — a mismatch there accepts the TCP connection at the edge and
+# then hangs forever, which looks exactly like a crashed app. The code still honours
+# an injected PORT, so this is only the default.
+ENV NODE_ENV=production OUT_DIR=/tmp/docmcp PORT=10000
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY public ./public
 # PORT is injected by the host; the app falls back to 8787 locally.
-EXPOSE 8787
+EXPOSE 10000
 # Generated files live on the container filesystem on purpose: they expire after
 # 24h anyway, so a restart only breaks links that were about to die. Everything
 # that must survive — keys, quotas, the IP salt — is in Postgres.

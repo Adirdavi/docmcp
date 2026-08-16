@@ -15,7 +15,14 @@ const PORT = Number(process.env.PORT ?? 8787);
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
 const OUT = path.resolve(process.env.OUT_DIR ?? "out");
 const TTL_MS = 24 * 60 * 60 * 1000;
-await store.init();
+try {
+  await store.init();
+} catch (err) {
+  // A silent exit here is indistinguishable from a port misconfiguration in
+  // platform logs, so say which one it was.
+  console.error("FATAL: cannot reach the database. Check DATABASE_URL.\n", err);
+  process.exit(1);
+}
 // Without a salt, hashed IPs are trivially reversible — the whole space is enumerable.
 // Persisted in the DB so it survives the machine sleeping and waking.
 const IP_SALT = await store.ipSalt();
