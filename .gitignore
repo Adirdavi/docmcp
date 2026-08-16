@@ -4,3 +4,4 @@ out/
 *.db-shm
 *.db-wal
 .env
+dist/

@@ -1,16 +1,23 @@
-# Every dependency is now pure JS (pg replaced the native better-sqlite3), so no
-# build toolchain and no multi-stage build is needed.
+# Compile in the builder, ship plain JS. Running tsx in production meant carrying a
+# dev tool into the runtime image and transpiling on every boot — wasteful anywhere,
+# and actively bad on a free tier where a cold start already costs ~50s.
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package*.json tsconfig.json ./
+RUN npm ci
+COPY src ./src
+RUN npm run build
+
 FROM node:22-slim
 WORKDIR /app
-# PORT is injected by the host (Render, Koyeb, Cloud Run all set it); the app
-# falls back to 8787 locally. Don't pin it here or the host's value gets ignored.
 ENV NODE_ENV=production OUT_DIR=/tmp/docmcp
 COPY package*.json ./
-RUN npm ci --omit=dev && npm i tsx@4 --no-save
-COPY src ./src
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
 COPY public ./public
-EXPOSE 8000
+# PORT is injected by the host; the app falls back to 8787 locally.
+EXPOSE 8787
 # Generated files live on the container filesystem on purpose: they expire after
 # 24h anyway, so a restart only breaks links that were about to die. Everything
-# that must survive — keys, quotas — is in Postgres via DATABASE_URL.
-CMD ["node", "node_modules/tsx/dist/cli.mjs", "src/index.ts"]
+# that must survive — keys, quotas, the IP salt — is in Postgres.
+CMD ["node", "dist/index.js"]
