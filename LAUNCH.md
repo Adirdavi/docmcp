@@ -100,25 +100,86 @@ a decent .docx. Tell me if that's the wrong call.
 
 ---
 
-## 3. The one that probably matters most — Hebrew / RTL
+## 3. Hebrew — LinkedIn
 
-Your real edge is not "another document tool", it is that Hebrew comes out
-right. That audience is not on r/mcp. Post this in Israeli dev communities
-(Facebook groups, local Slack/Discord, LinkedIn) — and the same angle works
-translated for Arabic-speaking dev communities.
+Your real edge is not "another document tool", it is that Hebrew and Arabic come
+out right. That audience is not on r/mcp, and LinkedIn has no karma gate.
+
+LinkedIn cuts the post off after ~2 lines behind a "see more" link, so the hook
+has to land before it. Everything below is written for that.
 
 ```
-כל מי שניסה לבקש מ-AI מסמך Word בעברית יודע איך זה נגמר: טקסט הפוך, טבלה
-שבורה, יישור לשמאל, ורבע שעה של תיקונים ידניים.
+כל מי שביקש מ-AI מסמך Word בעברית יודע איך זה נגמר.
 
-בניתי שרת MCP שמייצר קבצי Word ו-Excel אמיתיים, והוא מזהה עברית לבד ומסדר
-את הכיווניות בלי שצריך לבקש. מתחבר ל-Claude, ל-Cursor, או לכל סוכן שתומך ב-MCP.
+טקסט הפוך, טבלה שבורה, יישור לשמאל — ורבע שעה של תיקונים ידניים על משהו
+שאמור היה לקחת שנייה.
 
-חינם עד 10 מסמכים בחודש, בלי הרשמה:
+הסיבה פשוטה: מודל שפה יודע לכתוב מילים, אבל לא לבנות קובץ. קובץ Word הוא
+ארכיון דחוס עם עשרות קבצי XML בפנים, וכל בית חייב לשבת במקום הנכון. אז המודל
+מחזיר טקסט מעוצב ומקווה שמישהו יעתיק אותו לוורד.
+
+בניתי שרת MCP שפותר בדיוק את החלק הזה. הוא מייצר קבצי Word ו-Excel אמיתיים,
+והוא מזהה עברית לבד ומסדר את הכיווניות בלי שצריך לבקש.
+
+הפרט שהכי חשוב לי: זיהוי הכיווניות הוא לא פרמטר שאפשר לשכוח להעביר. הוא נגזר
+מהתוכן עצמו — כי כל פעם שראיתי מסמך עברי שבור, הסיבה הייתה שמישהו שכח דגל.
+
+מתחבר ל-Claude, ל-Cursor, או לכל סוכן שתומך ב-MCP. חינם עד 10 מסמכים בחודש,
+בלי הרשמה.
+
 https://docmcp.onrender.com
+
+הקוד פתוח: https://github.com/Adirdavi/docmcp
 
 אשמח לדעת אם זה נשבר לכם על משהו.
 ```
+
+**Two options for the link.** LinkedIn is widely believed to show posts with
+outbound links to fewer people. If you care, move both URLs to your own first
+comment and end the post with "לינק בתגובה הראשונה". Test it once each way —
+you have two posts to spend, this one and the Arabic one.
+
+---
+
+## 4. Arabic
+
+Same message, ~400 million speakers instead of ~9 million. The pain is worse in
+Arabic than in Hebrew: connected letter forms and Arabic-Indic digits (٢٠٢٦) break
+in tools that treat text as left-to-right, not just the alignment.
+
+Verified in production: a full Arabic document — heading, paragraph, numbered
+list, table — comes out with every paragraph right-aligned, the table laid out
+right-to-left, and the digits intact, with no flag passed.
+
+Post in Arabic-speaking developer communities on LinkedIn and X.
+
+```
+كل من طلب من نموذج ذكاء اصطناعي تقريرًا بصيغة Word بالعربية يعرف كيف ينتهي الأمر.
+
+نص معكوس، جدول مكسور، محاذاة إلى اليسار، وربع ساعة من التصحيح اليدوي.
+
+السبب بسيط: النموذج يجيد كتابة الكلمات، لكنه لا يستطيع بناء الملف. ملف Word هو
+في الحقيقة أرشيف مضغوط يحتوي على عشرات ملفات XML، وكل جزء يجب أن يكون في مكانه
+الصحيح. لذلك يعيد النموذج نصًا منسقًا ويأمل أن ينسخه أحد إلى Word.
+
+بنيت خادم MCP يعالج هذا الجزء تحديدًا. ينشئ ملفات Word و Excel حقيقية، ويكتشف
+العربية تلقائيًا فيضبط اتجاه النص دون أن تطلب ذلك.
+
+التفصيل الأهم بالنسبة لي: اتجاه النص ليس خيارًا يمكن نسيانه. يُستنتج من المحتوى
+نفسه — لأن كل مستند عربي مكسور رأيته كان سببه أن أحدًا نسي تمرير خيار.
+
+يعمل مع Claude و Cursor وأي وكيل يدعم MCP. مجاني حتى ١٠ مستندات شهريًا، بدون تسجيل.
+
+https://docmcp.onrender.com
+
+الكود مفتوح المصدر: https://github.com/Adirdavi/docmcp
+
+سيسعدني أن تخبروني إن وجدتم أي خلل.
+```
+
+**Before you post this:** have an Arabic speaker read it. The technical claims are
+verified, the grammar is not — a post in shaky Arabic aimed at people who care
+about Arabic being handled properly undercuts the whole point.
 
 ---
 
